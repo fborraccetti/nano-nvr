@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nano NVR</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --text: #1c1f24;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --accent: #0b84d6;
+    --ok: #1f9d55;
+    --warn: #c27c0e;
+    --bad: #d03b3b;
+    --bar: #e8ebef;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111315;
+      --card: #1b1e21;
+      --text: #e7e9ec;
+      --muted: #9aa1aa;
+      --line: #2b2f34;
+      --accent: #3aa6f0;
+      --ok: #3cc47a;
+      --warn: #e2a33a;
+      --bad: #ef6161;
+      --bar: #2a2e33;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 18px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  h2 { font-size: 15px; font-weight: 600; margin: 28px 0 10px; }
+  .muted { color: var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .stat { padding: 14px 16px; }
+  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--bar); margin-top: 10px; overflow: hidden; display: flex; }
+  .bar span { display: block; height: 100%; }
+  .bar .other { background: var(--muted); opacity: .45; }
+  .bar .nvr { background: var(--accent); }
+
+  .mosaic { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .cam { overflow: hidden; }
+  .cam a { display: block; position: relative; aspect-ratio: 16 / 9; background: #000; }
+  .cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa1aa; font-size: 13px; }
+  .cam .info { padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cam .name { font-weight: 600; }
+  .cam .when { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cam .err { padding: 0 12px 10px; font-size: 12px; color: var(--bad); word-break: break-word; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+  .dot.bad { background: var(--bad); }
+  .badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; font-weight: 500; color: var(--muted); }
+  td.num, th.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  tfoot td { font-weight: 600; }
+
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; padding: 4px 0; }
+  .settings div { padding: 8px 16px; }
+  .settings dt { font-size: 12px; color: var(--muted); }
+  .settings dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .error-banner { padding: 12px 16px; color: var(--bad); margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Nano NVR</h1>
+    <span class="muted" id="meta">Loading…</span>
+  </header>
+
+  <div class="card error-banner" id="banner"></div>
+
+  <section class="summary" id="summary"></section>
+
+  <h2>Cameras</h2>
+  <section class="mosaic" id="mosaic"></section>
+
+  <h2>Retention</h2>
+  <div class="card table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Camera</th><th>Mode</th><th class="num">Days</th><th>Oldest</th><th>Newest</th>
+          <th class="num">Timelapses</th><th class="num">Used</th><th class="num">Avg / day</th>
+          <th class="num">At full retention</th>
+        </tr>
+      </thead>
+      <tbody id="retention"></tbody>
+      <tfoot id="retention-total"></tfoot>
+    </table>
+  </div>
+
+  <h2>Settings</h2>
+  <dl class="card settings" id="settings"></dl>
+</main>
+
+<script>
+const REFRESH_MS = 30000;
+const $ = (id) => document.getElementById(id);
+
+function bytes(n) {
+  if (n == null) return "–";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1000 && i < units.length - 1) { n /= 1000; i++; }
+  return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + units[i];
+}
+
+function ago(ts, now) {
+  if (!ts) return "never";
+  const s = Math.max(0, Math.round(now - ts));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+
+function duration(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function health(cam, now) {
+  const last = cam.storage.last_file_at;
+  const limit = cam.mode === "snapshot" ? Math.max(3 * cam.interval, 180) : 180;
+  const failing = cam.error && (!last || cam.error.at > last);
+  if (last && now - last < limit && !failing) return "ok";
+  if (last && now - last < 3 * limit) return "warn";
+  return "bad";
+}
+
+function modeLabel(cam) {
+  if (cam.mode === "snapshot") return `snapshot · ${cam.interval}s`;
+  return cam.fps ? `record · ${cam.fps} fps` : "record";
+}
+
+function stat(label, value, sub, extra = "") {
+  return `<div class="card stat"><div class="label">${label}</div><div class="value">${value}</div>` +
+    `<div class="sub">${sub}</div>${extra}</div>`;
+}
+
+function renderSummary(st) {
+  const now = st.now;
+  const ok = st.cameras.filter((c) => health(c, now) === "ok").length;
+  const d = st.disk;
+  const nvrPct = d.total ? (st.nvr_bytes / d.total) * 100 : 0;
+  const otherPct = d.total ? Math.max(0, (d.used - st.nvr_bytes) / d.total) * 100 : 0;
+  const projected = st.cameras.reduce((sum, c) => sum + (c.storage.projected_bytes || 0), 0);
+  const missing = st.cameras.filter((c) => c.storage.projected_bytes == null).length;
+  const fits = projected <= d.free + st.nvr_bytes - st.min_free_gb * 1e9;
+  let retentionSub = "estimate after the first full day";
+  if (projected && missing) retentionSub = `≈ ${bytes(projected)} when full for ${st.cameras.length - missing} of ${st.cameras.length} cameras`;
+  else if (projected) retentionSub = `≈ ${bytes(projected)} when full · ${fits ? "fits on disk" : "will hit the free space limit"}`;
+  $("summary").innerHTML = [
+    stat("Cameras", `${ok} / ${st.cameras.length}`, ok === st.cameras.length ? "all saving" : "some need attention"),
+    stat("Footage", bytes(st.nvr_bytes), `in ${esc(st.storage_path)}`),
+    stat("Disk free", bytes(d.free), `of ${bytes(d.total)} · keeps ≥ ${st.min_free_gb} GB free`,
+      `<div class="bar" title="Nano NVR ${bytes(st.nvr_bytes)} · other ${bytes(d.used - st.nvr_bytes)}">` +
+      `<span class="nvr" style="width:${nvrPct}%"></span><span class="other" style="width:${otherPct}%"></span></div>`),
+    stat("Retention", st.retention_days ? `${st.retention_days} days` : "unlimited", retentionSub),
+  ].join("");
+}
+
+function renderMosaic(st) {
+  const now = st.now;
+  const box = $("mosaic");
+  const t = Date.now();
+  for (const cam of st.cameras) {
+    let card = box.querySelector(`[data-cam="${cam.name}"]`);
+    if (!card) {
+      card = document.createElement("article");
+      card.className = "card cam";
+      card.dataset.cam = cam.name;
+      card.innerHTML = `<a target="_blank" rel="noopener"><div class="placeholder">Loading preview…</div><img alt=""></a>` +
+        `<div class="info"><span class="dot"></span><span class="name"></span><span class="badge"></span><span class="when"></span></div>` +
+        `<div class="err"></div>`;
+      const img = card.querySelector("img");
+      img.alt = cam.name;
+      img.onload = () => { card.querySelector(".placeholder").style.display = "none"; img.style.display = ""; };
+      img.onerror = () => {
+        const p = card.querySelector(".placeholder");
+        p.textContent = "No preview";
+        p.style.display = "";
+        img.style.display = "none";
+      };
+      box.appendChild(card);
+    }
+    const src = `preview/${encodeURIComponent(cam.name)}.jpg?t=${t}`;
+    card.querySelector("a").href = src;
+    card.querySelector("img").src = src;
+    card.querySelector(".dot").className = "dot " + health(cam, now);
+    card.querySelector(".name").textContent = cam.name;
+    card.querySelector(".badge").textContent = modeLabel(cam);
+    card.querySelector(".when").textContent = "last saved " + ago(cam.storage.last_file_at, now);
+    const failing = cam.error && (!cam.storage.last_file_at || cam.error.at > cam.storage.last_file_at);
+    card.querySelector(".err").textContent = failing ? `${cam.error.message} (${ago(cam.error.at, now)})` : "";
+    card.querySelector(".err").style.display = failing ? "" : "none";
+  }
+}
+
+function renderRetention(st) {
+  $("retention").innerHTML = st.cameras.map((c) => {
+    const s = c.storage;
+    return `<tr><td>${esc(c.name)}</td><td>${esc(modeLabel(c))}</td><td class="num">${s.days}</td>` +
+      `<td>${s.oldest || "–"}</td><td>${s.newest || "–"}</td><td class="num">${s.timelapses}</td>` +
+      `<td class="num">${bytes(s.bytes)}</td><td class="num">${bytes(s.avg_day_bytes)}</td>` +
+      `<td class="num">${bytes(s.projected_bytes)}</td></tr>`;
+  }).join("");
+  const projected = st.cameras.reduce((sum, c) => sum + (c.storage.projected_bytes || 0), 0);
+  const avg = st.cameras.reduce((sum, c) => sum + (c.storage.avg_day_bytes || 0), 0);
+  const partial = st.cameras.some((c) => c.storage.projected_bytes == null) ? " (partial)" : "";
+  $("retention-total").innerHTML = `<tr><td>Total</td><td></td><td></td><td></td><td></td><td></td>` +
+    `<td class="num">${bytes(st.nvr_bytes)}</td><td class="num">${avg ? bytes(avg) + partial : "–"}</td>` +
+    `<td class="num">${projected ? bytes(projected) + partial : "–"}</td></tr>`;
+}
+
+function renderSettings(st) {
+  const tl = st.timelapse;
+  const items = [
+    ["Storage path", st.storage_path],
+    ["Retention", st.retention_days ? `${st.retention_days} days (today included)` : "unlimited"],
+    ["Minimum free space", `${st.min_free_gb} GB`],
+    ["Record segments", `${st.segment_minutes} min`],
+    ["Timelapse", `${tl.fps} fps · CRF ${tl.quality} · ${tl.height ? tl.height + "p" : "original size"}`],
+    ["Snapshots after timelapse", tl.keep_snapshots ? "kept" : "deleted"],
+    ...st.cameras.map((c) => [`${c.name}`, c.url]),
+  ];
+  $("settings").innerHTML = items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("api/status", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const st = await res.json();
+    $("banner").style.display = "none";
+    $("meta").textContent = `v${st.version} · up ${duration(st.now - st.started_at)} · updated ${new Date().toLocaleTimeString()}`;
+    renderSummary(st);
+    renderMosaic(st);
+    renderRetention(st);
+    renderSettings(st);
+  } catch (e) {
+    $("banner").textContent = "Cannot reach the add-on: " + e.message;
+    $("banner").style.display = "block";
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

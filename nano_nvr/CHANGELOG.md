@@ -1,0 +1,25 @@
+# Changelog
+
+## 0.3.0
+
+* Renamed from Frugal NVR to Nano NVR. The add-on slug is now `nano_nvr` and
+  the default storage path `/media/nano_nvr`: Home Assistant sees it as a new
+  add-on, so install it, copy the configuration over and move the old
+  `/media/frugal_nvr` folder if you want to keep its files.
+* Add-on icon and logo (sources in `art/`).
+
+## 0.2.0
+
+* Status panel in the Home Assistant sidebar ("NVR"): summary, live preview
+  mosaic of all cameras, storage and retention per camera, current settings.
+
+## 0.1.1
+
+* Fix startup on Home Assistant: use a fixed Alpine base image instead of the
+  Supervisor's default s6-overlay base ("s6-overlay-suexec: fatal: can only run
+  as pid 1").
+
+## 0.1.0
+
+* First release: snapshot mode with daily timelapses, record mode with MP4
+  segments, retention in days, minimum free space guard.
