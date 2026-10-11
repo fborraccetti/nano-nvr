@@ -267,8 +267,32 @@ class PanelTest(unittest.TestCase):
         status, ctype, body = self.get("/preview/front.jpg")
         self.assertEqual((status, ctype, body), (200, "image/jpeg", b"x"))
 
+    def fake_ffmpeg(self, script):
+        exe = Path(self.tmp.name) / "fake-ffmpeg"
+        exe.write_text("#!/bin/sh\n" + script)
+        exe.chmod(0o755)
+        return mock.patch.object(nvr.PanelHandler.settings, "ffmpeg", str(exe))
+
+    def test_stream_relays_ffmpeg_output(self):
+        with self.fake_ffmpeg("printf -- '--frame\\r\\nContent-type: image/jpeg\\r\\n\\r\\njpg'\n"):
+            status, ctype, body = self.get("/stream/front.mjpg")
+        self.assertEqual((status, ctype), (200, "multipart/x-mixed-replace;boundary=frame"))
+        self.assertEqual(body, b"--frame\r\nContent-type: image/jpeg\r\n\r\njpg")
+
+    def test_stream_dead_camera(self):
+        with self.fake_ffmpeg("echo 'Connection refused' >&2; exit 1\n"), self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/stream/front.mjpg")
+        self.assertEqual(ctx.exception.code, 502)
+
+    def test_stream_cmd(self):
+        cmd = nvr.stream_cmd(settings(Path("/x")), nvr.Camera(name="front", url="rtsp://cam"))
+        self.assertIn("rtsp://cam", cmd)
+        self.assertEqual(cmd[cmd.index("-f") + 1], "mpjpeg")
+        self.assertEqual(cmd[cmd.index("-boundary_tag") + 1], "frame")
+        self.assertEqual(cmd[cmd.index("-t") + 1], str(nvr.STREAM_MAX_SECONDS))
+
     def test_unknown_paths(self):
-        for path in ("/preview/other.jpg", "/preview/../options.jpg", "/nope"):
+        for path in ("/preview/other.jpg", "/preview/../options.jpg", "/stream/other.mjpg", "/nope"):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 self.get(path)
             self.assertEqual(ctx.exception.code, 404, path)

@@ -31,6 +31,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import defaultdict
@@ -348,6 +349,11 @@ PANEL_PORT = int(os.environ.get("NANO_NVR_PANEL_PORT", "8099"))
 PANEL_CLIENTS = {"172.30.32.2", "127.0.0.1", "::1"}
 PREVIEW_DIR = Path(os.environ.get("NANO_NVR_PREVIEW_DIR", "/tmp/nano_nvr_preview"))
 PREVIEW_MAX_AGE = 60
+# Live view: MJPEG re-encoded by ffmpeg only while someone watches, capped in
+# frame rate, height and duration so a forgotten tab cannot burn CPU forever.
+STREAM_FPS = 10
+STREAM_HEIGHT = 720
+STREAM_MAX_SECONDS = 1800
 preview_locks = defaultdict(threading.Lock)
 
 
@@ -433,6 +439,17 @@ def preview(s: Settings, cam: Camera):
     return cached if cached.exists() else None
 
 
+def stream_cmd(s: Settings, cam: Camera) -> list:
+    return [
+        s.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-fflags", "nobuffer", "-flags", "low_delay",
+        "-rtsp_transport", "tcp", "-timeout", RTSP_TIMEOUT_US, "-i", cam.url,
+        "-map", "0:v:0", "-an", "-t", str(STREAM_MAX_SECONDS),
+        "-vf", f"fps={STREAM_FPS},scale=-2:'min({STREAM_HEIGHT},ih)'",
+        "-c:v", "mjpeg", "-q:v", "6", "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1",
+    ]
+
+
 class PanelHandler(BaseHTTPRequestHandler):
     settings: Settings = None
 
@@ -450,6 +467,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             if image is None:
                 return self.send_error(404)
             self.reply(image.read_bytes(), "image/jpeg")
+        elif path.startswith("/stream/") and path.endswith(".mjpg") and path[8:-5] in cams:
+            self.stream(cams[path[8:-5]])
         else:
             self.send_error(404)
 
@@ -460,6 +479,36 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def stream(self, cam: Camera) -> None:
+        # stderr to a file: a pipe nobody reads would stall ffmpeg once full.
+        stderr = tempfile.TemporaryFile()
+        proc = subprocess.Popen(stream_cmd(self.settings, cam), stdout=subprocess.PIPE,
+                                stderr=stderr, preexec_fn=lower_priority)
+        try:
+            # Wait for the first bytes: a dead camera gets a 502, not an empty stream.
+            chunk = proc.stdout.read1(65536)
+            if not chunk:
+                proc.wait()
+                stderr.seek(0)
+                log.warning("%s: live view failed: %s", cam.name, last_line(stderr.read()))
+                return self.send_error(502)
+            log.debug("%s: live view started", cam.name)
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            while chunk:
+                self.wfile.write(chunk)
+                chunk = proc.stdout.read1(65536)
+        except OSError:
+            pass  # viewer closed the live view
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+            stderr.close()
+            log.debug("%s: live view stopped", cam.name)
 
     def log_message(self, fmt, *args):
         log.debug("panel: " + fmt, *args)

@@ -37,8 +37,8 @@ and JPG files to Home Assistant's `/media` folder and cleans up after itself.
   camera without re-encoding. Optionally re-encoded at a lower frame rate.
 * **Retention**: keeps N days, and deletes the oldest days first when free
   space runs low. Today's files are never touched.
-* **Sidebar panel**: preview mosaic, status of every camera, storage and
-  retention per camera, current settings.
+* **Sidebar panel**: preview mosaic with live view in a popup, status of every
+  camera, storage and retention per camera, current settings.
 * **Plain files**: browse and play everything from the Home Assistant
   **Media** panel, copy it over Samba, back it up with whatever you like.
 

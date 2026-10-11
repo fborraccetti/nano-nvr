@@ -59,12 +59,16 @@
 
   .mosaic { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
   .cam { overflow: hidden; }
-  .cam a { display: block; position: relative; aspect-ratio: 16 / 9; background: #000; }
+  .cam .shot { display: block; width: 100%; padding: 0; border: 0; cursor: zoom-in; position: relative; aspect-ratio: 16 / 9; background: #000; }
   .cam img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cam .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa1aa; font-size: 13px; }
   .cam .info { padding: 10px 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .cam .name { font-weight: 600; }
   .cam .when { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cam .links { padding: 0 12px 10px; display: flex; gap: 14px; font-size: 13px; }
+  a, .link { color: var(--accent); text-decoration: none; }
+  .link { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+  a:hover, .link:hover { text-decoration: underline; }
   .cam .err { padding: 0 12px 10px; font-size: 12px; color: var(--bad); word-break: break-word; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .dot.ok { background: var(--ok); }
@@ -84,6 +88,17 @@
   .settings div { padding: 8px 16px; }
   .settings dt { font-size: 12px; color: var(--muted); }
   .settings dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  dialog.live { padding: 0; border: 0; border-radius: 12px; background: #000; color: #e7e9ec; width: min(1280px, 96vw); max-height: 96vh; overflow: hidden; }
+  dialog.live::backdrop { background: rgba(0, 0, 0, .75); }
+  .live .frame { position: relative; aspect-ratio: 16 / 9; max-height: calc(96vh - 44px); margin: 0 auto; background: #000 center / contain no-repeat; }
+  .live .frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .live .frame .placeholder { position: absolute; inset: 0; display: none; place-items: center; font-size: 13px; color: #9aa1aa; background: rgba(0, 0, 0, .6); }
+  .live .bar-top { display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 13px; }
+  .live .bar-top .name { font-weight: 600; }
+  .live .bar-top .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--bad); color: #fff; letter-spacing: .04em; }
+  .live .bar-top .spacer { flex: 1; }
+  .live .bar-top a, .live .bar-top .link { color: #9ccff5; }
+  .live .close { background: none; border: 0; color: #e7e9ec; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 2px; }
   .error-banner { padding: 12px 16px; color: var(--bad); margin-bottom: 12px; display: none; }
 </style>
 </head>
@@ -119,6 +134,15 @@
   <h2>Settings</h2>
   <dl class="card settings" id="settings"></dl>
 </main>
+
+<dialog class="live" id="live">
+  <div class="bar-top">
+    <span class="tag">LIVE</span><span class="name" id="live-name"></span><span class="spacer"></span>
+    <a id="live-image" target="_blank" rel="noopener">Full image ↗</a>
+    <button class="close" id="live-close" aria-label="Close">×</button>
+  </div>
+  <div class="frame" id="live-frame"><img id="live-img" alt=""><div class="placeholder" id="live-msg"></div></div>
+</dialog>
 
 <script>
 const REFRESH_MS = 30000;
@@ -201,9 +225,12 @@ function renderMosaic(st) {
       card = document.createElement("article");
       card.className = "card cam";
       card.dataset.cam = cam.name;
-      card.innerHTML = `<a target="_blank" rel="noopener"><div class="placeholder">Loading preview…</div><img alt=""></a>` +
+      card.innerHTML = `<button class="shot" title="Live view"><div class="placeholder">Loading preview…</div><img alt=""></button>` +
         `<div class="info"><span class="dot"></span><span class="name"></span><span class="badge"></span><span class="when"></span></div>` +
-        `<div class="err"></div>`;
+        `<div class="err"></div>` +
+        `<div class="links"><button class="link live-link">Live view</button><a class="full" target="_blank" rel="noopener">Full image ↗</a></div>`;
+      card.querySelector(".shot").onclick = () => openLive(cam.name);
+      card.querySelector(".live-link").onclick = () => openLive(cam.name);
       const img = card.querySelector("img");
       img.alt = cam.name;
       img.onload = () => { card.querySelector(".placeholder").style.display = "none"; img.style.display = ""; };
@@ -216,7 +243,7 @@ function renderMosaic(st) {
       box.appendChild(card);
     }
     const src = `preview/${encodeURIComponent(cam.name)}.jpg?t=${t}`;
-    card.querySelector("a").href = src;
+    card.querySelector("a.full").href = src;
     card.querySelector("img").src = src;
     card.querySelector(".dot").className = "dot " + health(cam, now);
     card.querySelector(".name").textContent = cam.name;
@@ -257,6 +284,35 @@ function renderSettings(st) {
   ];
   $("settings").innerHTML = items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
 }
+
+function openLive(name) {
+  const dlg = $("live"), img = $("live-img"), msg = $("live-msg");
+  const cam = encodeURIComponent(name);
+  $("live-name").textContent = name;
+  $("live-image").href = `preview/${cam}.jpg?t=${Date.now()}`;
+  // Last preview as a backdrop until the first live frame paints over it.
+  $("live-frame").style.backgroundImage = `url("preview/${cam}.jpg")`;
+  msg.style.display = "none";
+  img.style.visibility = "";
+  img.alt = name;
+  img.onerror = () => {
+    if (!dlg.open) return;
+    msg.textContent = "Live view unavailable";
+    msg.style.display = "grid";
+    img.style.visibility = "hidden";
+  };
+  img.src = `stream/${cam}.mjpg?t=${Date.now()}`;
+  dlg.showModal();
+}
+
+function closeLive() {
+  $("live").close();
+}
+
+// Dropping the src closes the connection, which stops ffmpeg on the add-on.
+$("live").addEventListener("close", () => { $("live-img").removeAttribute("src"); });
+$("live").addEventListener("click", (e) => { if (e.target === $("live")) closeLive(); });
+$("live-close").onclick = closeLive;
 
 async function refresh() {
   try {

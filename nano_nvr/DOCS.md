@@ -51,7 +51,8 @@ The **NVR** entry in the sidebar opens a single page with:
 * a summary: cameras that are saving, space used by the footage, free disk
   space, retention and the estimated size once retention is full;
 * a mosaic with a preview of every camera, the time of the last saved file and
-  the last error, if any;
+  the last error, if any. Click a camera (or **Live view**) to watch it live in
+  a popup; **Full image** opens the preview at full size in a new tab;
 * storage per camera: days kept, oldest and newest day, timelapses, space
   used, average per day and estimate at full retention;
 * the current settings (credentials are hidden).
@@ -60,6 +61,11 @@ The page refreshes every 30 seconds. Previews come from the latest snapshot;
 for cameras in record mode, or when no recent snapshot exists, a fresh frame is
 taken, at most once a minute and only while the page is open. The panel is
 served through Home Assistant ingress only, no port is opened on your network.
+
+The live view is an MJPEG stream (up to 10 fps, 720p) encoded by ffmpeg only
+while the popup is open: closing it stops ffmpeg right away, and a stream left
+open stops by itself after 30 minutes. It costs CPU while you watch, so prefer
+the snapshot preview on very small boards.
 
 ## Configuration
 

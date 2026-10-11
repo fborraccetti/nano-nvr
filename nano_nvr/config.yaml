@@ -1,6 +1,6 @@
 ---
 name: Nano NVR
-version: "0.3.0"
+version: "0.4.0"
 slug: nano_nvr
 description: >-
   Lightweight RTSP recorder: daily timelapses or continuous recording to

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+* Live view: click a camera in the panel to watch it live in a popup (MJPEG,
+  up to 10 fps and 720p, encoded only while the popup is open). Each camera
+  card also links to the full size preview in a new tab.
+
 ## 0.3.0
 
 * First public release as Nano NVR (slug `nano_nvr`, default storage path
