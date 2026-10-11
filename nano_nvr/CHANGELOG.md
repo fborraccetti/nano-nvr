@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+* Fix live view through Home Assistant ingress ("Live view unavailable"): the
+  ingress proxy drops the boundary of MJPEG streams, so the panel now fetches
+  one frame at a time. One ffmpeg per camera is shared by all viewers and stops
+  about 15 seconds after the last one leaves.
+* New camera option `live_url` to use a lighter sub-stream for the live view.
+
 ## 0.4.0
 
 * Live view: click a camera in the panel to watch it live in a popup (MJPEG,

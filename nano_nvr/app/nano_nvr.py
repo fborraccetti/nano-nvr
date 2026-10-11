@@ -39,7 +39,7 @@ from dataclasses import dataclass, fields
 from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 
 log = logging.getLogger("nano_nvr")
 
@@ -62,6 +62,7 @@ class Camera:
     interval: int = 60
     fps: int = 0
     audio: bool = False
+    live_url: str = ""
 
 
 @dataclass
@@ -114,6 +115,8 @@ def load_settings(path: Path) -> Settings:
             interval=int(c.get("interval", 60)),
             fps=int(c.get("fps", 0)),
             audio=bool(c.get("audio", False)),
+            live_url=with_credentials(c["live_url"], c.get("username", ""), c.get("password", ""))
+            if c.get("live_url") else "",
         ))
     tunables = {f.name for f in fields(Settings)} - {"storage_path", "cameras", "ffmpeg"}
     return Settings(
@@ -349,11 +352,15 @@ PANEL_PORT = int(os.environ.get("NANO_NVR_PANEL_PORT", "8099"))
 PANEL_CLIENTS = {"172.30.32.2", "127.0.0.1", "::1"}
 PREVIEW_DIR = Path(os.environ.get("NANO_NVR_PREVIEW_DIR", "/tmp/nano_nvr_preview"))
 PREVIEW_MAX_AGE = 60
-# Live view: MJPEG re-encoded by ffmpeg only while someone watches, capped in
-# frame rate, height and duration so a forgotten tab cannot burn CPU forever.
-STREAM_FPS = 10
-STREAM_HEIGHT = 720
-STREAM_MAX_SECONDS = 1800
+# Live view: JPEG frames re-encoded by ffmpeg only while someone watches, capped
+# in frame rate and height. The panel fetches one frame per request instead of
+# an MJPEG stream because the ingress proxy drops the multipart boundary.
+LIVE_FPS = 10
+LIVE_HEIGHT = 720
+# ffmpeg stops when no viewer has asked for a frame for this long.
+LIVE_IDLE_SECONDS = 15
+# How long a frame request waits for a frame newer than the one the viewer has.
+LIVE_WAIT_SECONDS = 10
 preview_locks = defaultdict(threading.Lock)
 
 
@@ -439,15 +446,86 @@ def preview(s: Settings, cam: Camera):
     return cached if cached.exists() else None
 
 
-def stream_cmd(s: Settings, cam: Camera) -> list:
+def live_cmd(s: Settings, cam: Camera) -> list:
     return [
         s.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin",
         "-fflags", "nobuffer", "-flags", "low_delay",
-        "-rtsp_transport", "tcp", "-timeout", RTSP_TIMEOUT_US, "-i", cam.url,
-        "-map", "0:v:0", "-an", "-t", str(STREAM_MAX_SECONDS),
-        "-vf", f"fps={STREAM_FPS},scale=-2:'min({STREAM_HEIGHT},ih)'",
-        "-c:v", "mjpeg", "-q:v", "6", "-f", "mpjpeg", "-boundary_tag", "frame", "pipe:1",
+        "-rtsp_transport", "tcp", "-timeout", RTSP_TIMEOUT_US, "-i", cam.live_url or cam.url,
+        "-map", "0:v:0", "-an",
+        "-vf", f"fps={LIVE_FPS},scale=-2:'min({LIVE_HEIGHT},ih)'",
+        "-c:v", "mjpeg", "-q:v", "6", "-f", "image2pipe", "pipe:1",
     ]
+
+
+def jpeg_frames(stream):
+    """Split a stream of concatenated JPEGs. 0xFFD9 (end of image) cannot occur
+    inside the entropy-coded data, where 0xFF bytes are always escaped."""
+    buf = b""
+    while chunk := stream.read1(65536):
+        buf += chunk
+        while (end := buf.find(b"\xff\xd9")) != -1:
+            start = buf.find(b"\xff\xd8")
+            if 0 <= start < end:
+                yield buf[start:end + 2]
+            buf = buf[end + 2:]
+
+
+class LiveSession:
+    """One ffmpeg per camera, shared by every viewer, alive while frames are asked for."""
+
+    def __init__(self, s: Settings, cam: Camera):
+        self.s, self.cam = s, cam
+        self.cond = threading.Condition()
+        self.frame, self.seq, self.done = None, 0, False
+        self.last_request = time.monotonic()
+        threading.Thread(target=self.run, name=f"live-{cam.name}", daemon=True).start()
+
+    def run(self) -> None:
+        # stderr to a file: a pipe nobody reads would stall ffmpeg once full.
+        stderr = tempfile.TemporaryFile()
+        proc = subprocess.Popen(live_cmd(self.s, self.cam), stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=stderr, preexec_fn=lower_priority)
+        log.debug("%s: live view started", self.cam.name)
+        try:
+            for frame in jpeg_frames(proc.stdout):
+                with self.cond:
+                    self.frame, self.seq = frame, self.seq + 1
+                    self.cond.notify_all()
+                if time.monotonic() - self.last_request > LIVE_IDLE_SECONDS:
+                    break
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
+            if not self.seq:
+                stderr.seek(0)
+                log.warning("%s: live view failed: %s", self.cam.name, last_line(stderr.read()))
+            stderr.close()
+            with self.cond:
+                self.done = True
+                self.cond.notify_all()
+            log.debug("%s: live view stopped", self.cam.name)
+
+    def next_frame(self, after: int):
+        """Wait for a frame newer than `after`; returns (seq, jpeg) or None."""
+        self.last_request = time.monotonic()
+        with self.cond:
+            if after > self.seq:
+                after = 0  # the viewer's counter comes from a session that has ended
+            self.cond.wait_for(lambda: self.seq > after or self.done, LIVE_WAIT_SECONDS)
+            return (self.seq, self.frame) if self.frame else None
+
+
+live_sessions: dict = {}
+live_lock = threading.Lock()
+
+
+def live_frame(s: Settings, cam: Camera, after: int):
+    with live_lock:
+        session = live_sessions.get(cam.name)
+        if session is None or session.done:
+            session = live_sessions[cam.name] = LiveSession(s, cam)
+    return session.next_frame(after)
 
 
 class PanelHandler(BaseHTTPRequestHandler):
@@ -467,48 +545,25 @@ class PanelHandler(BaseHTTPRequestHandler):
             if image is None:
                 return self.send_error(404)
             self.reply(image.read_bytes(), "image/jpeg")
-        elif path.startswith("/stream/") and path.endswith(".mjpg") and path[8:-5] in cams:
-            self.stream(cams[path[8:-5]])
+        elif path.startswith("/live/") and path.endswith(".jpg") and path[6:-4] in cams:
+            after = (parse_qs(urlsplit(self.path).query).get("after") or ["0"])[0]
+            frame = live_frame(self.settings, cams[path[6:-4]], int(after) if after.isdigit() else 0)
+            if frame is None:
+                return self.send_error(502)
+            seq, jpeg = frame
+            self.reply(jpeg, "image/jpeg", {"X-Frame-Seq": str(seq)})
         else:
             self.send_error(404)
 
-    def reply(self, body: bytes, content_type: str) -> None:
+    def reply(self, body: bytes, content_type: str, headers: dict = None) -> None:
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
-
-    def stream(self, cam: Camera) -> None:
-        # stderr to a file: a pipe nobody reads would stall ffmpeg once full.
-        stderr = tempfile.TemporaryFile()
-        proc = subprocess.Popen(stream_cmd(self.settings, cam), stdout=subprocess.PIPE,
-                                stderr=stderr, preexec_fn=lower_priority)
-        try:
-            # Wait for the first bytes: a dead camera gets a 502, not an empty stream.
-            chunk = proc.stdout.read1(65536)
-            if not chunk:
-                proc.wait()
-                stderr.seek(0)
-                log.warning("%s: live view failed: %s", cam.name, last_line(stderr.read()))
-                return self.send_error(502)
-            log.debug("%s: live view started", cam.name)
-            self.send_response(200)
-            self.send_header("Content-Type", "multipart/x-mixed-replace;boundary=frame")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            while chunk:
-                self.wfile.write(chunk)
-                chunk = proc.stdout.read1(65536)
-        except OSError:
-            pass  # viewer closed the live view
-        finally:
-            proc.kill()
-            proc.wait()
-            proc.stdout.close()
-            stderr.close()
-            log.debug("%s: live view stopped", cam.name)
 
     def log_message(self, fmt, *args):
         log.debug("panel: " + fmt, *args)

@@ -37,4 +37,5 @@ configuration:
     description: >-
       One entry per camera: name, url, and optionally username, password,
       mode (snapshot or record), interval (seconds, snapshot mode),
-      fps (record mode, re-encodes), audio, enabled. See the Documentation tab.
+      fps (record mode, re-encodes), audio, live_url (sub-stream for the live
+      view), enabled. See the Documentation tab.

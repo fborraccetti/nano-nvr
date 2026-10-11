@@ -73,8 +73,8 @@ follows the camera bitrate: a 2 Mbit/s stream is about 20 GB per day.
 | Accelerator recommended | n/a | n/a | yes | no |
 | Object detection and alerts | depends on the plan | no | yes | no |
 
-Nano NVR is not a security system: there is no motion or object detection and
-no live streaming. If you need alerts, use [Frigate](https://frigate.video).
+Nano NVR is not a security system: there is no motion or object detection, and
+the live view is a convenience, not a monitoring wall. If you need alerts, use [Frigate](https://frigate.video).
 If you want to see what your cameras saw today, every day, for weeks, on
 modest hardware, Nano NVR is enough.
 

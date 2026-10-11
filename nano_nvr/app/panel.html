@@ -285,34 +285,74 @@ function renderSettings(st) {
   $("settings").innerHTML = items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
 }
 
+// Live view: one JPEG per request, each waiting for a frame newer than the last
+// one shown. Works through the ingress proxy, which breaks MJPEG streams.
+const LIVE_MAX_MS = 30 * 60 * 1000;
+let liveRun = 0;
+
+function liveMessage(text) {
+  const msg = $("live-msg");
+  msg.textContent = text;
+  msg.style.display = text ? "grid" : "none";
+}
+
+async function liveLoop(run, cam) {
+  const img = $("live-img");
+  const started = Date.now();
+  let after = 0, failures = 0, shown = null;
+  while (run === liveRun) {
+    if (Date.now() - started > LIVE_MAX_MS) {
+      liveMessage("Live view paused after 30 minutes: close and reopen to continue");
+      return;
+    }
+    try {
+      const res = await fetch(`live/${cam}.jpg?after=${after}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const seq = Number(res.headers.get("X-Frame-Seq"));
+      after = Number.isFinite(seq) && seq > 0 ? seq : after + 1;
+      const url = URL.createObjectURL(await res.blob());
+      if (run !== liveRun) { URL.revokeObjectURL(url); return; }
+      img.src = url;
+      img.style.visibility = "";
+      if (shown) URL.revokeObjectURL(shown);
+      shown = url;
+      failures = 0;
+      liveMessage("");
+    } catch (e) {
+      if (run !== liveRun) return;
+      failures++;
+      liveMessage(failures < 3 ? "Connecting…" : "Live view unavailable: camera not reachable, retrying");
+      await new Promise((r) => setTimeout(r, Math.min(2000 * failures, 10000)));
+    }
+  }
+  if (shown) URL.revokeObjectURL(shown);
+}
+
 function openLive(name) {
-  const dlg = $("live"), img = $("live-img"), msg = $("live-msg");
+  const img = $("live-img");
   const cam = encodeURIComponent(name);
   $("live-name").textContent = name;
   $("live-image").href = `preview/${cam}.jpg?t=${Date.now()}`;
   // Last preview as a backdrop until the first live frame paints over it.
   $("live-frame").style.backgroundImage = `url("preview/${cam}.jpg")`;
-  msg.style.display = "none";
-  img.style.visibility = "";
   img.alt = name;
-  img.onerror = () => {
-    if (!dlg.open) return;
-    msg.textContent = "Live view unavailable";
-    msg.style.display = "grid";
-    img.style.visibility = "hidden";
-  };
-  img.src = `stream/${cam}.mjpg?t=${Date.now()}`;
-  dlg.showModal();
+  img.removeAttribute("src");
+  img.style.visibility = "hidden";
+  liveMessage("Connecting…");
+  $("live").showModal();
+  liveLoop(++liveRun, cam);
 }
 
 function closeLive() {
   $("live").close();
 }
 
-// Dropping the src closes the connection, which stops ffmpeg on the add-on.
-$("live").addEventListener("close", () => { $("live-img").removeAttribute("src"); });
+// Bumping the run counter ends the loop; with no more requests ffmpeg stops
+// on the add-on after a few seconds.
+$("live").addEventListener("close", () => { liveRun++; $("live-img").removeAttribute("src"); });
 $("live").addEventListener("click", (e) => { if (e.target === $("live")) closeLive(); });
 $("live-close").onclick = closeLive;
+document.addEventListener("visibilitychange", () => { if (document.hidden && $("live").open) closeLive(); });
 
 async function refresh() {
   try {

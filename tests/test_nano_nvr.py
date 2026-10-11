@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -72,6 +73,17 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s.retention_days, 7)
         self.assertEqual(s.segment_minutes, 5)
         self.assertEqual((s.cameras[0].mode, s.cameras[0].fps, s.cameras[0].audio), ("record", 5, True))
+
+    def test_live_url_gets_credentials(self):
+        s = self.load({"cameras": [
+            {"name": "a", "url": "rtsp://cam/main", "live_url": "rtsp://cam/sub", "username": "u", "password": "p@"},
+            {"name": "b", "url": "rtsp://cam/main"},
+        ]})
+        self.assertEqual(s.cameras[0].live_url, "rtsp://u:p%40@cam/sub")
+        self.assertEqual(s.cameras[1].live_url, "")
+        cmd = nvr.live_cmd(s, s.cameras[0])
+        self.assertEqual(cmd[cmd.index("-i") + 1], "rtsp://u:p%40@cam/sub")
+        self.assertEqual(nvr.live_cmd(s, s.cameras[1])[nvr.live_cmd(s, s.cameras[1]).index("-i") + 1], "rtsp://cam/main")
 
     def test_duplicate_names_rejected(self):
         with self.assertRaises(ValueError):
@@ -273,26 +285,33 @@ class PanelTest(unittest.TestCase):
         exe.chmod(0o755)
         return mock.patch.object(nvr.PanelHandler.settings, "ffmpeg", str(exe))
 
-    def test_stream_relays_ffmpeg_output(self):
-        with self.fake_ffmpeg("printf -- '--frame\\r\\nContent-type: image/jpeg\\r\\n\\r\\njpg'\n"):
-            status, ctype, body = self.get("/stream/front.mjpg")
-        self.assertEqual((status, ctype), (200, "multipart/x-mixed-replace;boundary=frame"))
-        self.assertEqual(body, b"--frame\r\nContent-type: image/jpeg\r\n\r\njpg")
+    def live(self, after=0):
+        nvr.live_sessions.clear()
+        with urllib.request.urlopen(f"{self.base}/live/front.jpg?after={after}") as res:
+            return res.headers["Content-Type"], res.headers["X-Frame-Seq"], res.read()
 
-    def test_stream_dead_camera(self):
+    def test_live_returns_latest_frame(self):
+        # Two JPEGs back to back, as ffmpeg's image2pipe writes them.
+        with self.fake_ffmpeg("printf '\\377\\330AA\\377\\331\\377\\330BB\\377\\331'\n"):
+            ctype, seq, body = self.live()
+        self.assertEqual(ctype, "image/jpeg")
+        self.assertIn(body, (b"\xff\xd8AA\xff\xd9", b"\xff\xd8BB\xff\xd9"))
+        self.assertGreaterEqual(int(seq), 1)
+
+    def test_live_dead_camera(self):
         with self.fake_ffmpeg("echo 'Connection refused' >&2; exit 1\n"), self.assertRaises(urllib.error.HTTPError) as ctx:
-            self.get("/stream/front.mjpg")
+            self.live()
         self.assertEqual(ctx.exception.code, 502)
 
-    def test_stream_cmd(self):
-        cmd = nvr.stream_cmd(settings(Path("/x")), nvr.Camera(name="front", url="rtsp://cam"))
+    def test_live_cmd(self):
+        cmd = nvr.live_cmd(settings(Path("/x")), nvr.Camera(name="front", url="rtsp://cam"))
         self.assertIn("rtsp://cam", cmd)
-        self.assertEqual(cmd[cmd.index("-f") + 1], "mpjpeg")
-        self.assertEqual(cmd[cmd.index("-boundary_tag") + 1], "frame")
-        self.assertEqual(cmd[cmd.index("-t") + 1], str(nvr.STREAM_MAX_SECONDS))
+        self.assertEqual(cmd[cmd.index("-f") + 1], "image2pipe")
+        self.assertIn(f"fps={nvr.LIVE_FPS}", cmd[cmd.index("-vf") + 1])
+
 
     def test_unknown_paths(self):
-        for path in ("/preview/other.jpg", "/preview/../options.jpg", "/stream/other.mjpg", "/nope"):
+        for path in ("/preview/other.jpg", "/preview/../options.jpg", "/live/other.jpg", "/nope"):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 self.get(path)
             self.assertEqual(ctx.exception.code, 404, path)
@@ -303,6 +322,22 @@ class PanelTest(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError) as ctx:
                 self.get("/api/status")
         self.assertEqual(ctx.exception.code, 403)
+
+
+class LiveSessionTest(unittest.TestCase):
+    def test_jpeg_frames_split_across_chunks(self):
+        import io
+        data = b"junk\xff\xd8one\xff\xd9\xff\xd8two\xff\xd9\xff\xd8par"
+        stream = io.BufferedReader(io.BytesIO(data), buffer_size=3)
+        self.assertEqual(list(nvr.jpeg_frames(stream)), [b"\xff\xd8one\xff\xd9", b"\xff\xd8two\xff\xd9"])
+
+    def test_counter_from_an_ended_session_does_not_stall(self):
+        session = object.__new__(nvr.LiveSession)
+        session.cond = threading.Condition()
+        session.frame, session.seq, session.done = b"jpg", 3, False
+        start = time.monotonic()
+        self.assertEqual(session.next_frame(after=500), (3, b"jpg"))
+        self.assertLess(time.monotonic() - start, 1)
 
 
 class DayOfTest(unittest.TestCase):

@@ -3,7 +3,7 @@
 Nano NVR saves the footage of your IP cameras to Home Assistant storage, so
 you need neither the vendor cloud nor an SD card in each camera. It talks to
 the cameras over RTSP on your local network and does as little work as
-possible: no motion detection, no live streaming, no database. You browse the
+possible: no motion detection, no continuous decoding, no database. You browse the
 files from the **Media** panel of Home Assistant, and an **NVR** entry in the
 sidebar shows how the add-on is doing.
 
@@ -62,10 +62,17 @@ for cameras in record mode, or when no recent snapshot exists, a fresh frame is
 taken, at most once a minute and only while the page is open. The panel is
 served through Home Assistant ingress only, no port is opened on your network.
 
-The live view is an MJPEG stream (up to 10 fps, 720p) encoded by ffmpeg only
-while the popup is open: closing it stops ffmpeg right away, and a stream left
-open stops by itself after 30 minutes. It costs CPU while you watch, so prefer
-the snapshot preview on very small boards.
+The live view shows up to 10 frames per second at up to 720p. One ffmpeg per
+camera decodes the stream while somebody watches, shared by every viewer, and
+stops about 15 seconds after the last popup is closed; a popup left open pauses
+by itself after 30 minutes. The panel fetches the frames one by one instead of
+using an MJPEG stream, because the Home Assistant ingress proxy does not pass
+MJPEG streams through.
+
+Live view is the only part of the add-on that costs real CPU, and only while
+you watch. Decoding the main stream of a 1080p H.265 camera takes about a third
+of an x86 core; the sub-stream, set with `live_url`, about a tenth. On small
+boards always set `live_url` to the camera's sub-stream.
 
 ## Configuration
 
@@ -91,6 +98,7 @@ cameras:
     username: admin
     password: GHIJKL
     mode: record
+    live_url: rtsp://192.168.1.11:554/ch1/sub
 ```
 
 ### General options
@@ -118,6 +126,7 @@ cameras:
 | `interval` | `60` | Seconds between two snapshots. Lower gives smoother timelapses. |
 | `fps` | `0` | Record mode only. `0` copies the stream as is; any other value re-encodes to H.264 at that frame rate. |
 | `audio` | `false` | Record mode only. Keep the audio track (converted to AAC). |
+| `live_url` | empty | Stream used by the live view, usually the camera's sub-stream (e.g. `rtsp://192.168.1.10:554/ch1/sub`). Same credentials as `url`. Empty uses `url`. |
 | `enabled` | `true` | Set to `false` to pause a camera without deleting it. |
 
 ### Choosing the level of detail
