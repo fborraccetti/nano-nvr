@@ -2,11 +2,9 @@
 
 ## 0.3.0
 
-* Renamed from Frugal NVR to Nano NVR. The add-on slug is now `nano_nvr` and
-  the default storage path `/media/nano_nvr`: Home Assistant sees it as a new
-  add-on, so install it, copy the configuration over and move the old
-  `/media/frugal_nvr` folder if you want to keep its files.
-* Add-on icon and logo (sources in `art/`).
+* First public release as Nano NVR (slug `nano_nvr`, default storage path
+  `/media/nano_nvr`).
+* Add-on icon and logo.
 
 ## 0.2.0
 

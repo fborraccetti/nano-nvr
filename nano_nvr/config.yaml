@@ -5,7 +5,7 @@ slug: nano_nvr
 description: >-
   Lightweight RTSP recorder: daily timelapses or continuous recording to
   /media, without camera clouds or SD cards
-url: https://github.com/OWNER/nano-nvr
+url: https://github.com/fborraccetti/nano-nvr
 arch:
   - aarch64
   - amd64
