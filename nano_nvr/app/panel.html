@@ -188,6 +188,25 @@ function modeLabel(cam) {
   return cam.fps ? `record · ${cam.fps} fps` : "record";
 }
 
+// Link to a folder in the Home Assistant Media browser, opened in the top
+// window outside the ingress iframe. Only /media is a media source ("local");
+// null for storage under /share.
+function mediaUrl(st, ...parts) {
+  const m = /^\/media\/(.+?)\/*$/.exec(st.storage_path);
+  if (!m) return null;
+  let id = "media-source://media_source/local";
+  let url = "/media-browser/browser/" + encodeURIComponent("app,media-source://media_source");
+  for (const part of [...m[1].split("/"), ...parts]) {
+    id += "/" + part;
+    url += "/" + encodeURIComponent("," + id);
+  }
+  return url;
+}
+
+function mediaLink(url, text) {
+  return url ? `<a href="${esc(url)}" target="_top">${text}</a>` : "";
+}
+
 function stat(label, value, sub, extra = "") {
   return `<div class="card stat"><div class="label">${label}</div><div class="value">${value}</div>` +
     `<div class="sub">${sub}</div>${extra}</div>`;
@@ -207,7 +226,7 @@ function renderSummary(st) {
   else if (projected) retentionSub = `≈ ${bytes(projected)} when full · ${fits ? "fits on disk" : "will hit the free space limit"}`;
   $("summary").innerHTML = [
     stat("Cameras", `${ok} / ${st.cameras.length}`, ok === st.cameras.length ? "all saving" : "some need attention"),
-    stat("Footage", bytes(st.nvr_bytes), `in ${esc(st.storage_path)}`),
+    stat("Footage", bytes(st.nvr_bytes), `in ${esc(st.storage_path)} ${mediaLink(mediaUrl(st), "Open in Media ↗")}`),
     stat("Disk free", bytes(d.free), `of ${bytes(d.total)} · keeps ≥ ${st.min_free_gb} GB free`,
       `<div class="bar" title="Nano NVR ${bytes(st.nvr_bytes)} · other ${bytes(d.used - st.nvr_bytes)}">` +
       `<span class="nvr" style="width:${nvrPct}%"></span><span class="other" style="width:${otherPct}%"></span></div>`),
@@ -228,7 +247,7 @@ function renderMosaic(st) {
       card.innerHTML = `<button class="shot" title="Live view"><div class="placeholder">Loading preview…</div><img alt=""></button>` +
         `<div class="info"><span class="dot"></span><span class="name"></span><span class="badge"></span><span class="when"></span></div>` +
         `<div class="err"></div>` +
-        `<div class="links"><button class="link live-link">Live view</button><a class="full" target="_blank" rel="noopener">Full image ↗</a></div>`;
+        `<div class="links"><button class="link live-link">Live view</button><a class="full" target="_blank" rel="noopener">Full image ↗</a><a class="media" target="_top">Media folder ↗</a></div>`;
       card.querySelector(".shot").onclick = () => openLive(cam.name);
       card.querySelector(".live-link").onclick = () => openLive(cam.name);
       const img = card.querySelector("img");
@@ -244,6 +263,9 @@ function renderMosaic(st) {
     }
     const src = `preview/${encodeURIComponent(cam.name)}.jpg?t=${t}`;
     card.querySelector("a.full").href = src;
+    const media = mediaUrl(st, cam.name);
+    card.querySelector("a.media").style.display = media ? "" : "none";
+    if (media) card.querySelector("a.media").href = media;
     card.querySelector("img").src = src;
     card.querySelector(".dot").className = "dot " + health(cam, now);
     card.querySelector(".name").textContent = cam.name;
@@ -258,7 +280,7 @@ function renderMosaic(st) {
 function renderRetention(st) {
   $("retention").innerHTML = st.cameras.map((c) => {
     const s = c.storage;
-    return `<tr><td>${esc(c.name)}</td><td>${esc(modeLabel(c))}</td><td class="num">${s.days}</td>` +
+    return `<tr><td>${mediaLink(mediaUrl(st, c.name), esc(c.name)) || esc(c.name)}</td><td>${esc(modeLabel(c))}</td><td class="num">${s.days}</td>` +
       `<td>${s.oldest || "–"}</td><td>${s.newest || "–"}</td><td class="num">${s.timelapses}</td>` +
       `<td class="num">${bytes(s.bytes)}</td><td class="num">${bytes(s.avg_day_bytes)}</td>` +
       `<td class="num">${bytes(s.projected_bytes)}</td></tr>`;
@@ -274,7 +296,7 @@ function renderRetention(st) {
 function renderSettings(st) {
   const tl = st.timelapse;
   const items = [
-    ["Storage path", st.storage_path],
+    ["Storage path", st.storage_path, mediaLink(mediaUrl(st), "Open in Media ↗")],
     ["Retention", st.retention_days ? `${st.retention_days} days (today included)` : "unlimited"],
     ["Minimum free space", `${st.min_free_gb} GB`],
     ["Record segments", `${st.segment_minutes} min`],
@@ -282,7 +304,7 @@ function renderSettings(st) {
     ["Snapshots after timelapse", tl.keep_snapshots ? "kept" : "deleted"],
     ...st.cameras.map((c) => [`${c.name}`, c.url]),
   ];
-  $("settings").innerHTML = items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("");
+  $("settings").innerHTML = items.map(([k, v, link = ""]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)} ${link}</dd></div>`).join("");
 }
 
 // Live view: one JPEG per request, each waiting for a frame newer than the last

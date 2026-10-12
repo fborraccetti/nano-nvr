@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2
+
+* Panel: links to the storage folder and to each camera's folder in the Home
+  Assistant Media browser (summary, camera cards, retention table, settings).
+  Shown only when the storage path is under /media.
+
 ## 0.5.1
 
 * `interval` removed: the snapshot rate of each camera is set only with
