@@ -66,6 +66,15 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s.cameras[0].mode, "snapshot")
         self.assertEqual(s.cameras[0].interval, 60)
 
+    def test_snapshot_rate(self):
+        s = self.load({"cameras": [
+            {"name": "a", "url": "rtsp://a", "snapshots_per_minute": 6},
+            {"name": "b", "url": "rtsp://b", "snapshots_per_minute": 0.5},
+            {"name": "c", "url": "rtsp://c", "interval": 30},
+            {"name": "d", "url": "rtsp://d", "snapshots_per_minute": 4, "interval": 30},
+        ]})
+        self.assertEqual([c.interval for c in s.cameras], [10, 120, 30, 15])
+
     def test_overrides(self):
         s = self.load({"retention_days": 7, "segment_minutes": 5, "cameras": [
             {"name": "a", "url": "rtsp://a", "mode": "record", "fps": 5, "audio": True},

@@ -11,7 +11,7 @@ sidebar shows how the add-on is doing.
 
 Each camera runs in one of two modes.
 
-**snapshot** (default): every `interval` seconds the add-on opens the stream,
+**snapshot** (default): `snapshots_per_minute` times a minute the add-on opens the stream,
 takes one keyframe and closes it again. Nothing is decoded between two shots,
 so the load is close to zero. Shortly after midnight the frames of the day
 become a timelapse MP4 (H.264) and the JPGs are deleted.
@@ -77,42 +77,46 @@ boards always set `live_url` to the camera's sub-stream.
 ## Configuration
 
 ```yaml
-storage_path: /media/nano_nvr
-retention_days: 30
-min_free_gb: 5
-segment_minutes: 10
-timelapse_fps: 24
-timelapse_quality: 28
-timelapse_height: 0
-keep_snapshots: false
-log_level: info
 cameras:
   - name: garden
     url: rtsp://192.168.1.10:554/ch1/main
     username: admin
     password: ABCDEF
     mode: snapshot
-    interval: 60
+    snapshots_per_minute: 1
   - name: gate
     url: rtsp://192.168.1.11:554/ch1/main
     username: admin
     password: GHIJKL
     mode: record
     live_url: rtsp://192.168.1.11:554/ch1/sub
+storage_path: /media/nano_nvr
+retention_days: 30
+min_free_gb: 5
+timelapse_fps: 24
+timelapse_quality: 28
+timelapse_height: 0
+keep_snapshots: false
+segment_minutes: 10
+log_level: info
 ```
 
 ### General options
 
 | Option | Default | Description |
 | --- | --- | --- |
+| **Storage** | | |
 | `storage_path` | `/media/nano_nvr` | Where files are written. Must be under `/media` or `/share`. |
 | `retention_days` | `30` | Days to keep, today included. `0` keeps everything. |
 | `min_free_gb` | `5` | Delete the oldest days when free space drops below this. `0` disables it. |
-| `segment_minutes` | `10` | Length of each file in record mode. Cuts are aligned to the clock. |
-| `timelapse_fps` | `24` | Frame rate of the daily timelapse. |
+| **Snapshot mode** | | |
+| `timelapse_fps` | `24` | Playback frame rate of the daily timelapse. It does not change how often snapshots are taken: that is `snapshots_per_minute` of each camera. |
 | `timelapse_quality` | `28` | H.264 CRF of the timelapse: lower means better and bigger. |
 | `timelapse_height` | `0` | Resize the timelapse to this height (e.g. `720`). `0` keeps the original. |
 | `keep_snapshots` | `false` | Keep the JPGs after the timelapse is built. |
+| **Record mode** | | |
+| `segment_minutes` | `10` | Length of each file in record mode. Cuts are aligned to the clock. |
+| **Other** | | |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
 
 ### Camera options
@@ -123,7 +127,8 @@ cameras:
 | `url` | required | RTSP URL, without credentials. |
 | `username`, `password` | empty | Added to the URL; special characters such as `@` are handled. |
 | `mode` | `snapshot` | `snapshot` or `record`. |
-| `interval` | `60` | Seconds between two snapshots. Lower gives smoother timelapses. |
+| `snapshots_per_minute` | `1` | Snapshot mode only. Snapshots taken per minute, up to `60`. Decimals go below one a minute: `0.5` is one every 2 minutes. Higher gives smoother and longer timelapses. |
+| `interval` | | Older way to set the rate, in seconds between two snapshots. Used only when `snapshots_per_minute` is not set. |
 | `fps` | `0` | Record mode only. `0` copies the stream as is; any other value re-encodes to H.264 at that frame rate. |
 | `audio` | `false` | Record mode only. Keep the audio track (converted to AAC). |
 | `live_url` | empty | Stream used by the live view, usually the camera's sub-stream (e.g. `rtsp://192.168.1.10:554/ch1/sub`). Same credentials as `url`. Empty uses `url`. |
@@ -133,10 +138,11 @@ cameras:
 
 From lightest to heaviest:
 
-1. **snapshot, `interval: 60`**: one frame per minute, a one-minute video per
-   day. Good for "what happened today" at a glance.
-2. **snapshot, `interval: 5` to `10`**: smoother timelapse, still almost no
-   CPU. Below 5 seconds the time needed to open the stream becomes the limit.
+1. **snapshot, `snapshots_per_minute: 1`**: one frame per minute, a one-minute
+   video per day. Good for "what happened today" at a glance.
+2. **snapshot, `snapshots_per_minute: 6` to `12`**: smoother timelapse, still
+   almost no CPU. Above 12 per minute the time needed to open the stream
+   becomes the limit.
 3. **record**: every frame, as the camera sends it. Use the camera's
    sub-stream (lower resolution) if storage is a concern.
 4. **record with `fps`**: fewer frames per second, smaller files, but every

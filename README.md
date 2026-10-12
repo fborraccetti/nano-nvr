@@ -97,7 +97,7 @@ modest hardware, Nano NVR is enough.
        url: rtsp://192.168.1.22:554/ch1/main
        username: admin
        password: GHIJKL
-       interval: 30
+       snapshots_per_minute: 2
    ```
 
    Only `name` and `url` are required. The defaults are a good start:

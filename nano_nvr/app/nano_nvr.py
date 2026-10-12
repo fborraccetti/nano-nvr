@@ -3,7 +3,7 @@
 
 Each camera runs in one of two modes:
 
-* snapshot: grab one keyframe every `interval` seconds. Once a day is over its
+* snapshot: grab `snapshots_per_minute` keyframes per minute. Once a day is over its
   frames become a timelapse MP4 and, unless `keep_snapshots` is set, the JPGs
   are deleted. Nothing is decoded between two shots, so the cost is close to 0.
 * record: copy the RTSP stream to disk as MP4 segments of `segment_minutes`.
@@ -59,10 +59,15 @@ class Camera:
     name: str
     url: str
     mode: str = "snapshot"
-    interval: int = 60
+    snapshots_per_minute: float = 1.0
     fps: int = 0
     audio: bool = False
     live_url: str = ""
+
+    @property
+    def interval(self) -> float:
+        """Seconds between two snapshots."""
+        return 60 / self.snapshots_per_minute
 
 
 @dataclass
@@ -100,6 +105,15 @@ def redact(url: str) -> str:
     return urlunsplit(parts._replace(netloc="***@" + parts.netloc.rsplit("@", 1)[-1]))
 
 
+def snapshots_per_minute(c: dict) -> float:
+    """Snapshot rate of a camera entry; the legacy `interval` (seconds) still works."""
+    if c.get("snapshots_per_minute"):
+        return float(c["snapshots_per_minute"])
+    if c.get("interval"):
+        return 60 / float(c["interval"])
+    return 1.0
+
+
 def load_settings(path: Path) -> Settings:
     raw = json.loads(path.read_text())
     cameras = []
@@ -112,7 +126,7 @@ def load_settings(path: Path) -> Settings:
             name=c["name"],
             url=with_credentials(c["url"], c.get("username", ""), c.get("password", "")),
             mode=c.get("mode", "snapshot"),
-            interval=int(c.get("interval", 60)),
+            snapshots_per_minute=snapshots_per_minute(c),
             fps=int(c.get("fps", 0)),
             audio=bool(c.get("audio", False)),
             live_url=with_credentials(c["live_url"], c.get("username", ""), c.get("password", ""))
@@ -410,6 +424,7 @@ def status(s: Settings) -> dict:
             "name": cam.name,
             "mode": cam.mode,
             "interval": cam.interval,
+            "snapshots_per_minute": cam.snapshots_per_minute,
             "fps": cam.fps,
             "audio": cam.audio,
             "url": redact(cam.url),
@@ -608,7 +623,7 @@ def main(argv=None) -> int:
             detail = f"segments of {s.segment_minutes} min, " + (f"{cam.fps} fps" if cam.fps else "stream copy")
         else:
             target, extra = snapshot_loop, ()
-            detail = f"every {cam.interval}s"
+            detail = f"{cam.snapshots_per_minute:g} per minute (every {cam.interval:g}s)"
         log.info("%s: %s mode, %s, %s", cam.name, cam.mode, detail, redact(cam.url))
         threads.append(threading.Thread(target=target, args=(s, cam, stop, *extra), name=cam.name, daemon=True))
     for t in threads:

@@ -1,41 +1,44 @@
 ---
 configuration:
-  storage_path:
-    name: Storage path
-    description: >-
-      Folder for snapshots, timelapses and recordings. Must be under /media
-      (visible in the Media panel) or /share.
-  retention_days:
-    name: Retention (days)
-    description: Days of footage to keep, today included. 0 keeps everything.
-  min_free_gb:
-    name: Minimum free space (GB)
-    description: >-
-      When free space drops below this value the oldest days are deleted
-      first, whatever the retention. 0 disables the check.
-  segment_minutes:
-    name: Segment length (minutes)
-    description: Length of each MP4 file written by cameras in record mode.
-  timelapse_fps:
-    name: Timelapse frame rate
-    description: >-
-      Playback speed of daily timelapses. With a 60 s interval and 24 fps,
-      one second of video covers 24 minutes.
-  timelapse_quality:
-    name: Timelapse quality (CRF)
-    description: H.264 CRF. Lower is better and bigger; 23-30 is a sensible range.
-  timelapse_height:
-    name: Timelapse height
-    description: Resize timelapses to this height in pixels (e.g. 720). 0 keeps the original size.
-  keep_snapshots:
-    name: Keep snapshots
-    description: Keep the JPG files after the daily timelapse has been built.
-  log_level:
-    name: Log level
   cameras:
     name: Cameras
     description: >-
       One entry per camera: name, url, and optionally username, password,
-      mode (snapshot or record), interval (seconds, snapshot mode),
-      fps (record mode, re-encodes), audio, live_url (sub-stream for the live
-      view), enabled. See the Documentation tab.
+      mode (snapshot or record), snapshots_per_minute (snapshot mode, default
+      1; 2 = every 30 s, 6 = every 10 s, 0.5 = every 2 min), fps (record mode,
+      re-encodes), audio, live_url (sub-stream for the live view), enabled.
+      See the Documentation tab.
+  storage_path:
+    name: "Storage: path"
+    description: >-
+      Folder for snapshots, timelapses and recordings. Must be under /media
+      (visible in the Media panel) or /share.
+  retention_days:
+    name: "Storage: retention (days)"
+    description: Days of footage to keep, today included. 0 keeps everything.
+  min_free_gb:
+    name: "Storage: minimum free space (GB)"
+    description: >-
+      When free space drops below this value the oldest days are deleted
+      first, whatever the retention. 0 disables the check.
+  timelapse_fps:
+    name: "Snapshot mode: timelapse frame rate"
+    description: >-
+      Playback speed of daily timelapses, not how often snapshots are taken
+      (that is snapshots_per_minute of each camera). Video length per day =
+      snapshots per minute x 1440 / this value: 1 snapshot per minute at 24
+      fps gives 1 minute of video, 6 per minute gives 6 minutes.
+  timelapse_quality:
+    name: "Snapshot mode: timelapse quality (CRF)"
+    description: H.264 CRF. Lower is better and bigger; 23-30 is a sensible range.
+  timelapse_height:
+    name: "Snapshot mode: timelapse height"
+    description: Resize timelapses to this height in pixels (e.g. 720). 0 keeps the original size.
+  keep_snapshots:
+    name: "Snapshot mode: keep snapshots"
+    description: Keep the JPG files after the daily timelapse has been built.
+  segment_minutes:
+    name: "Record mode: segment length (minutes)"
+    description: Length of each MP4 file written by cameras in record mode.
+  log_level:
+    name: Log level

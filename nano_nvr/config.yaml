@@ -1,6 +1,6 @@
 ---
 name: Nano NVR
-version: "0.4.1"
+version: "0.5.0"
 slug: nano_nvr
 description: >-
   Lightweight RTSP recorder: daily timelapses or continuous recording to
@@ -22,35 +22,39 @@ map:
     read_only: false
   - type: share
     read_only: false
+# Options are grouped as shown in the Configuration tab: cameras, storage,
+# snapshot mode and timelapse, record mode, logging.
 options:
+  cameras: []
   storage_path: /media/nano_nvr
   retention_days: 30
   min_free_gb: 5
-  segment_minutes: 10
   timelapse_fps: 24
   timelapse_quality: 28
   timelapse_height: 0
   keep_snapshots: false
+  segment_minutes: 10
   log_level: info
-  cameras: []
 schema:
-  storage_path: match(^/(media|share)/.+)
-  retention_days: int(0,)
-  min_free_gb: float(0,)
-  segment_minutes: int(1,60)
-  timelapse_fps: int(1,60)
-  timelapse_quality: int(18,40)
-  timelapse_height: int(0,2160)
-  keep_snapshots: bool
-  log_level: list(debug|info|warning|error)
   cameras:
     - name: match(^[A-Za-z0-9_-]+$)
       url: match(^rtsps?://.+)
       username: str?
       password: password?
       mode: list(snapshot|record)?
+      snapshots_per_minute: float(0.01,60)?
+      # Legacy: seconds between snapshots, used when snapshots_per_minute is unset.
       interval: int(1,86400)?
       fps: int(0,30)?
       audio: bool?
       live_url: match(^rtsps?://.+)?
       enabled: bool?
+  storage_path: match(^/(media|share)/.+)
+  retention_days: int(0,)
+  min_free_gb: float(0,)
+  timelapse_fps: int(1,60)
+  timelapse_quality: int(18,40)
+  timelapse_height: int(0,2160)
+  keep_snapshots: bool
+  segment_minutes: int(1,60)
+  log_level: list(debug|info|warning|error)

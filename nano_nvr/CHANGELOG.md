@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+* New camera option `snapshots_per_minute` (default 1, decimals allowed) makes
+  the snapshot rate explicit. The old `interval` in seconds still works when
+  `snapshots_per_minute` is not set.
+* Configuration tab reorganised: cameras first, then storage, snapshot mode
+  and timelapse, record mode. The timelapse frame rate now says it only sets
+  playback speed.
+
 ## 0.4.1
 
 * Fix live view through Home Assistant ingress ("Live view unavailable"): the

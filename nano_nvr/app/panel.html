@@ -184,7 +184,7 @@ function health(cam, now) {
 }
 
 function modeLabel(cam) {
-  if (cam.mode === "snapshot") return `snapshot · ${cam.interval}s`;
+  if (cam.mode === "snapshot") return `snapshot · ${+cam.snapshots_per_minute.toFixed(2)}/min`;
   return cam.fps ? `record · ${cam.fps} fps` : "record";
 }
 
