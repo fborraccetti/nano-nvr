@@ -105,15 +105,6 @@ def redact(url: str) -> str:
     return urlunsplit(parts._replace(netloc="***@" + parts.netloc.rsplit("@", 1)[-1]))
 
 
-def snapshots_per_minute(c: dict) -> float:
-    """Snapshot rate of a camera entry; the legacy `interval` (seconds) still works."""
-    if c.get("snapshots_per_minute"):
-        return float(c["snapshots_per_minute"])
-    if c.get("interval"):
-        return 60 / float(c["interval"])
-    return 1.0
-
-
 def load_settings(path: Path) -> Settings:
     raw = json.loads(path.read_text())
     cameras = []
@@ -126,7 +117,7 @@ def load_settings(path: Path) -> Settings:
             name=c["name"],
             url=with_credentials(c["url"], c.get("username", ""), c.get("password", "")),
             mode=c.get("mode", "snapshot"),
-            snapshots_per_minute=snapshots_per_minute(c),
+            snapshots_per_minute=float(c.get("snapshots_per_minute", 1)),
             fps=int(c.get("fps", 0)),
             audio=bool(c.get("audio", False)),
             live_url=with_credentials(c["live_url"], c.get("username", ""), c.get("password", ""))

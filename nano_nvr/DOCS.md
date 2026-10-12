@@ -128,7 +128,6 @@ log_level: info
 | `username`, `password` | empty | Added to the URL; special characters such as `@` are handled. |
 | `mode` | `snapshot` | `snapshot` or `record`. |
 | `snapshots_per_minute` | `1` | Snapshot mode only. Snapshots taken per minute, up to `60`. Decimals go below one a minute: `0.5` is one every 2 minutes. Higher gives smoother and longer timelapses. |
-| `interval` | | Older way to set the rate, in seconds between two snapshots. Used only when `snapshots_per_minute` is not set. |
 | `fps` | `0` | Record mode only. `0` copies the stream as is; any other value re-encodes to H.264 at that frame rate. |
 | `audio` | `false` | Record mode only. Keep the audio track (converted to AAC). |
 | `live_url` | empty | Stream used by the live view, usually the camera's sub-stream (e.g. `rtsp://192.168.1.10:554/ch1/sub`). Same credentials as `url`. Empty uses `url`. |

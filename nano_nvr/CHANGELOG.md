@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+* `interval` removed: the snapshot rate of each camera is set only with
+  `snapshots_per_minute`. A camera that still has `interval` must be changed
+  by hand, for example `interval: 60` becomes `snapshots_per_minute: 1` and
+  `interval: 5` becomes `snapshots_per_minute: 12`.
+
 ## 0.5.0
 
 * New camera option `snapshots_per_minute` (default 1, decimals allowed) makes

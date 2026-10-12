@@ -1,6 +1,6 @@
 ---
 name: Nano NVR
-version: "0.5.0"
+version: "0.5.1"
 slug: nano_nvr
 description: >-
   Lightweight RTSP recorder: daily timelapses or continuous recording to
@@ -43,8 +43,6 @@ schema:
       password: password?
       mode: list(snapshot|record)?
       snapshots_per_minute: float(0.01,60)?
-      # Legacy: seconds between snapshots, used when snapshots_per_minute is unset.
-      interval: int(1,86400)?
       fps: int(0,30)?
       audio: bool?
       live_url: match(^rtsps?://.+)?
