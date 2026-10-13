@@ -222,6 +222,46 @@ class FreeSpaceTest(unittest.TestCase):
         self.assertTrue(today.exists())
 
 
+class SnapshotLoopTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.cam = nvr.Camera(name="front", url="rtsp://cam")
+        self.addCleanup(nvr.errors.clear)
+
+    def run_loop(self, s, grab=None, rounds=3):
+        """Run the loop for a few rounds; returns the snapshots it tried to take."""
+        stop = threading.Event()
+        waits = []
+
+        def fake_wait(_timeout):
+            waits.append(_timeout)
+            if len(waits) >= rounds:
+                stop.set()
+
+        with mock.patch.object(nvr, "grab_snapshot", side_effect=grab) as fake_grab, \
+                mock.patch.object(stop, "wait", side_effect=fake_wait):
+            nvr.snapshot_loop(s, self.cam, stop)
+        return fake_grab.call_count
+
+    def test_errors_do_not_end_the_thread(self):
+        disk_full = OSError(28, "No space left on device")
+        with self.assertLogs(nvr.log, "ERROR"):
+            self.assertEqual(self.run_loop(settings(self.root), grab=disk_full), 3)
+        self.assertIn("No space left", nvr.errors["front"][1])
+
+    def test_paused_when_disk_almost_full(self):
+        with mock.patch.object(nvr, "free_gb", return_value=2), self.assertLogs(nvr.log, "ERROR") as logs:
+            self.assertEqual(self.run_loop(settings(self.root, min_free_gb=5)), 0)
+        self.assertEqual(len(logs.records), 1, "logged once, not at every round")
+        self.assertIn("paused", nvr.errors["front"][1])
+
+    def test_not_paused_above_half_threshold(self):
+        with mock.patch.object(nvr, "free_gb", return_value=3):
+            self.assertEqual(self.run_loop(settings(self.root, min_free_gb=5)), 3)
+
+
 class CameraStorageTest(unittest.TestCase):
     def test_counts_days_sizes_and_projection(self):
         with tempfile.TemporaryDirectory() as tmp:

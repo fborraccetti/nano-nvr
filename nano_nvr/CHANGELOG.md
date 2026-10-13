@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.3
+
+* Fix: a full disk stopped snapshot cameras for good. An error while taking a
+  snapshot (such as `No space left on device` when creating the day folder at
+  midnight) ended the camera thread until the add-on was restarted; now it is
+  logged and the next snapshot is tried as usual.
+* Snapshot cameras pause when free space drops under half of `min_free_gb`
+  and resume by themselves. Before, today's frames could fill the disk, the
+  timelapse of the day before failed for lack of space and its frames were
+  then deleted to free space.
+
 ## 0.5.2
 
 * Panel: links to the storage folder and to each camera's folder in the Home

@@ -32,7 +32,10 @@ Files are organised like this:
 
 Every 10 minutes the add-on deletes days older than `retention_days` and, if
 free space is below `min_free_gb`, the oldest days of any camera until there
-is enough space again. Today's files are never deleted.
+is enough space again. Today's files are never deleted: when free space drops
+under half of `min_free_gb`, snapshot cameras stop taking pictures until
+space is freed, so the disk never fills up and yesterday's timelapse can still
+be built.
 
 ## Installation
 

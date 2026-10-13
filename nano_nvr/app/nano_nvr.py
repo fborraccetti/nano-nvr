@@ -186,11 +186,33 @@ def grab_snapshot(s: Settings, cam: Camera, dest: Path) -> bool:
     return True
 
 
+def snapshots_paused(s: Settings) -> bool:
+    """Below half of `min_free_gb` new snapshots are skipped. Housekeeping can
+    only free past days, so this keeps room for building yesterday's timelapse
+    instead of filling the disk with today's frames."""
+    return bool(s.min_free_gb) and free_gb(s.storage_path) < s.min_free_gb / 2
+
+
 def snapshot_loop(s: Settings, cam: Camera, stop: threading.Event) -> None:
+    paused = False
     while not stop.is_set():
         started = time.monotonic()
         now = datetime.now()
-        grab_snapshot(s, cam, s.storage_path / cam.name / now.date().isoformat() / f"{now:%H%M%S}.jpg")
+        try:
+            if snapshots_paused(s):
+                if not paused:
+                    log.error("%s: snapshots paused, free space under %s GB", cam.name, s.min_free_gb / 2)
+                    errors[cam.name] = (time.time(), f"snapshots paused, free space under {s.min_free_gb / 2} GB")
+                paused = True
+            else:
+                if paused:
+                    log.info("%s: snapshots resumed", cam.name)
+                paused = False
+                grab_snapshot(s, cam, s.storage_path / cam.name / now.date().isoformat() / f"{now:%H%M%S}.jpg")
+        except Exception as e:
+            # A failing shot must never end the thread: the camera would stop until a restart.
+            log.exception("%s: snapshot failed", cam.name)
+            errors[cam.name] = (time.time(), f"snapshot failed: {e}")
         stop.wait(max(0, cam.interval - (time.monotonic() - started)))
 
 
