@@ -236,6 +236,59 @@ def build_timelapse(s: Settings, day_dir: Path, frames: int, video: Path) -> boo
     return True
 
 
+def concat_videos(s: Settings, parts: list, video: Path) -> bool:
+    """Join MP4s encoded with the same settings into `video`, without re-encoding."""
+    tmp = video.with_name("." + video.name)
+    with tempfile.NamedTemporaryFile("w", suffix=".txt") as playlist:
+        for p in parts:
+            playlist.write("file '%s'\n" % str(p).replace("'", r"'\''"))
+        playlist.flush()
+        cmd = [
+            s.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "concat", "-safe", "0", "-i", playlist.name,
+            "-c", "copy", "-movflags", "+faststart", "-f", "mp4", str(tmp),
+        ]
+        res = subprocess.run(cmd, capture_output=True, preexec_fn=lower_priority)
+    if res.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+        tmp.unlink(missing_ok=True)
+        log.error("%s: joining %s failed: %s", video.parent.name, video.name, last_line(res.stderr))
+        return False
+    tmp.rename(video)
+    return True
+
+
+def frames_to_timelapse(s: Settings, day_dir: Path) -> None:
+    """Turn the frames of a day into its timelapse and delete them. When the
+    timelapse already exists (today's frames were compacted to free space)
+    the new frames are appended to it.
+
+    Frames are first moved to a hidden folder: snapshots taken meanwhile land
+    in the day folder and are neither encoded nor deleted by this round."""
+    staging = day_dir / ".timelapse"
+    pending = list(day_dir.glob("[0-9]*.jpg"))
+    if not pending and not staging.is_dir():
+        return
+    staging.mkdir(exist_ok=True)
+    for f in pending:
+        f.rename(staging / f.name)
+    frames = len(list(staging.glob("[0-9]*.jpg")))
+    video = day_dir.with_suffix(".mp4")
+    if not frames:
+        ok = True
+    elif not video.exists():
+        ok = build_timelapse(s, staging, frames, video)
+    else:
+        part = video.with_name(".part-" + video.name)
+        ok = build_timelapse(s, staging, frames, part) and concat_videos(s, [video, part], video)
+        part.unlink(missing_ok=True)
+    if ok:
+        shutil.rmtree(staging, ignore_errors=True)
+        return
+    for f in staging.iterdir():  # keep them for the next round
+        f.rename(day_dir / f.name)
+    staging.rmdir()
+
+
 # --- record mode ------------------------------------------------------------
 
 def probe_codec(s: Settings, cam: Camera) -> str:
@@ -331,12 +384,13 @@ def housekeeping(s: Settings, today=None) -> None:
                 continue
             if not entry.is_dir() or day >= today:
                 continue
-            frames = sorted(entry.glob("[0-9]*.jpg"))
-            if frames:
+            if not s.keep_snapshots:
+                frames_to_timelapse(s, entry)
+            else:
+                frames = list(entry.glob("[0-9]*.jpg"))
                 video = entry.with_suffix(".mp4")
-                if (video.exists() or build_timelapse(s, entry, len(frames), video)) and not s.keep_snapshots:
-                    for f in frames:
-                        f.unlink(missing_ok=True)
+                if frames and not video.exists():
+                    build_timelapse(s, entry, len(frames), video)
             try:
                 entry.rmdir()  # only succeeds when nothing is left in the folder
             except OSError:
@@ -347,6 +401,13 @@ def housekeeping(s: Settings, today=None) -> None:
 def enforce_free_space(s: Settings, today: date) -> None:
     if not s.min_free_gb or not s.storage_path.is_dir():
         return
+    if free_gb(s.storage_path) < s.min_free_gb and not s.keep_snapshots:
+        # Cheapest first: today's frames take far more room than their timelapse.
+        for cam in s.cameras:
+            day_dir = s.storage_path / cam.name / today.isoformat()
+            if cam.mode == "snapshot" and any(day_dir.glob("[0-9]*.jpg")):
+                log.warning("%s: free space under %s GB, compacting today's frames", cam.name, s.min_free_gb)
+                frames_to_timelapse(s, day_dir)
     while free_gb(s.storage_path) < s.min_free_gb:
         past = [
             (day, entry)

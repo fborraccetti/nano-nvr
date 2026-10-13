@@ -6,10 +6,13 @@
   snapshot (such as `No space left on device` when creating the day folder at
   midnight) ended the camera thread until the add-on was restarted; now it is
   logged and the next snapshot is tried as usual.
+* Free space under `min_free_gb`: today's snapshots taken so far become the
+  day's timelapse and are deleted, before any older day is removed. Frames
+  taken afterwards are appended to the same video. Before, today's frames
+  could fill the disk, the timelapse of the day before failed for lack of
+  space and its frames were then deleted to free space.
 * Snapshot cameras pause when free space drops under half of `min_free_gb`
-  and resume by themselves. Before, today's frames could fill the disk, the
-  timelapse of the day before failed for lack of space and its frames were
-  then deleted to free space.
+  and resume by themselves.
 
 ## 0.5.2
 

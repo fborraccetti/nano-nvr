@@ -158,12 +158,30 @@ class HousekeepingTest(unittest.TestCase):
         self.run_housekeeping(settings(self.root), build_ok=False)
         self.assertTrue((self.cam / "2026-10-10" / "120000.jpg").exists())
 
-    def test_existing_timelapse_is_not_rebuilt(self):
+    def test_existing_timelapse_is_not_rebuilt_when_keeping_snapshots(self):
         touch(self.cam / "2026-10-10" / "120000.jpg")
         touch(self.cam / "2026-10-10.mp4")
-        build = self.run_housekeeping(settings(self.root))
+        build = self.run_housekeeping(settings(self.root, keep_snapshots=True))
         build.assert_not_called()
+
+    def test_frames_left_after_compaction_are_appended(self):
+        touch(self.cam / "2026-10-10" / "235900.jpg")
+        touch(self.cam / "2026-10-10.mp4")
+        with mock.patch.object(nvr, "concat_videos", return_value=True) as concat:
+            build = self.run_housekeeping(settings(self.root))
+        part = self.cam / ".part-2026-10-10.mp4"
+        self.assertEqual(build.call_args.args[3], part)
+        concat.assert_called_once_with(mock.ANY, [self.cam / "2026-10-10.mp4", part], self.cam / "2026-10-10.mp4")
+        self.assertFalse(part.exists())
         self.assertFalse((self.cam / "2026-10-10").exists())
+
+    def test_failed_append_keeps_frames(self):
+        touch(self.cam / "2026-10-10" / "235900.jpg")
+        touch(self.cam / "2026-10-10.mp4")
+        with mock.patch.object(nvr, "concat_videos", return_value=False):
+            self.run_housekeeping(settings(self.root))
+        self.assertTrue((self.cam / "2026-10-10" / "235900.jpg").exists())
+        self.assertFalse((self.cam / "2026-10-10" / ".timelapse").exists())
 
     def test_recorded_segments_are_kept(self):
         touch(self.cam / "2026-10-10" / "120000.mp4")
@@ -207,13 +225,50 @@ class FreeSpaceTest(unittest.TestCase):
         mid = touch(self.root / "b" / "2026-10-02" / "000000.mp4").parent
         new = touch(self.root / "a" / "2026-10-03.mp4")
         today = touch(self.root / "a" / "2026-10-11" / "000000.mp4").parent
-        free = iter([1, 1, 10])
-        with mock.patch.object(nvr, "free_gb", side_effect=lambda _: next(free)):
+        free = iter([1, 1, 1, 10])
+        with mock.patch.object(nvr, "free_gb", side_effect=lambda _: next(free)), \
+                mock.patch.object(nvr, "build_timelapse") as build:
             nvr.enforce_free_space(settings(self.root, min_free_gb=5), TODAY)
+        build.assert_not_called()  # no frames today, nothing to compact
         self.assertFalse(old.exists())
         self.assertFalse(mid.exists())
         self.assertTrue(new.exists())
         self.assertTrue(today.exists())
+
+    def compact(self, build_ok=True, **kw):
+        def fake_build(s, frames_dir, frames, video):
+            self.built = (frames_dir, frames, video)
+            touch(self.root / "front" / "2026-10-11" / "121000.jpg")  # taken while encoding
+            if build_ok:
+                video.write_bytes(b"mp4")
+            return build_ok
+        with mock.patch.object(nvr, "free_gb", return_value=1), \
+                mock.patch.object(nvr, "build_timelapse", side_effect=fake_build), \
+                self.assertLogs(nvr.log, "WARNING"):
+            nvr.enforce_free_space(settings(self.root, min_free_gb=5, **kw), TODAY)
+
+    def test_low_space_compacts_todays_frames(self):
+        day = self.root / "front" / "2026-10-11"
+        touch(day / "120000.jpg")
+        touch(day / "120500.jpg")
+        self.compact()
+        self.assertEqual(self.built, (day / ".timelapse", 2, self.root / "front" / "2026-10-11.mp4"))
+        self.assertTrue((self.root / "front" / "2026-10-11.mp4").exists())
+        self.assertEqual(sorted(f.name for f in day.iterdir()), ["121000.jpg"],
+                         "frames taken meanwhile are kept for the next round")
+
+    def test_failed_compaction_keeps_frames(self):
+        day = self.root / "front" / "2026-10-11"
+        touch(day / "120000.jpg")
+        self.compact(build_ok=False)
+        self.assertEqual(sorted(f.name for f in day.iterdir()), ["120000.jpg", "121000.jpg"])
+
+    def test_no_compaction_when_keeping_snapshots(self):
+        touch(self.root / "front" / "2026-10-11" / "120000.jpg")
+        with mock.patch.object(nvr, "free_gb", return_value=1), \
+                mock.patch.object(nvr, "build_timelapse") as build, self.assertLogs(nvr.log, "ERROR"):
+            nvr.enforce_free_space(settings(self.root, min_free_gb=5, keep_snapshots=True), TODAY)
+        build.assert_not_called()
 
     def test_today_is_never_removed(self):
         today = touch(self.root / "a" / "2026-10-11" / "000000.mp4")
