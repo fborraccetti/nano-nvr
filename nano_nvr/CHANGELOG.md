@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+* `require_mount`: for a `storage_path` on network storage added in Home
+  Assistant (such as `/media/nvr`). While the storage is not mounted, cameras
+  pause, housekeeping skips and nothing is written, instead of filling the
+  Home Assistant disk. Recording resumes by itself when the storage is back.
+
 ## 0.5.3
 
 * Fix: a full disk stopped snapshot cameras for good. An error while taking a

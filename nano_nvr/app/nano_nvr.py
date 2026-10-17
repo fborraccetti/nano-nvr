@@ -47,6 +47,8 @@ DEFAULT_OPTIONS = Path("/data/options.json")
 # RTSP socket timeout in microseconds: ffmpeg exits instead of hanging on a dead camera.
 RTSP_TIMEOUT_US = "10000000"
 HOUSEKEEPING_EVERY = 600
+# How often a recorder checks whether the network storage is back.
+MOUNT_RETRY = 30
 VERSION = os.environ.get("NANO_NVR_VERSION", "dev")
 STARTED = time.time()
 
@@ -76,6 +78,7 @@ class Settings:
     cameras: list
     retention_days: int = 30
     min_free_gb: float = 5.0
+    require_mount: bool = False
     timelapse_fps: int = 24
     timelapse_quality: int = 28
     timelapse_height: int = 0
@@ -186,6 +189,17 @@ def grab_snapshot(s: Settings, cam: Camera, dest: Path) -> bool:
     return True
 
 
+def mount_point(path: Path) -> Path:
+    """Network storage added in Home Assistant appears as /media/<name> or /share/<name>."""
+    return Path(*path.parts[:3])
+
+
+def storage_missing(s: Settings) -> bool:
+    """With `require_mount`, nothing is written while the network storage is
+    not mounted: the files would end up on Home Assistant's own disk."""
+    return s.require_mount and not os.path.ismount(mount_point(s.storage_path))
+
+
 def snapshots_paused(s: Settings) -> bool:
     """Below half of `min_free_gb` new snapshots are skipped. Housekeeping can
     only free past days, so this keeps room for building yesterday's timelapse
@@ -199,7 +213,12 @@ def snapshot_loop(s: Settings, cam: Camera, stop: threading.Event) -> None:
         started = time.monotonic()
         now = datetime.now()
         try:
-            if snapshots_paused(s):
+            if storage_missing(s):
+                if not paused:
+                    log.error("%s: snapshots paused, %s is not mounted", cam.name, mount_point(s.storage_path))
+                    errors[cam.name] = (time.time(), f"snapshots paused, {mount_point(s.storage_path)} is not mounted")
+                paused = True
+            elif snapshots_paused(s):
                 if not paused:
                     log.error("%s: snapshots paused, free space under %s GB", cam.name, s.min_free_gb / 2)
                     errors[cam.name] = (time.time(), f"snapshots paused, free space under {s.min_free_gb / 2} GB")
@@ -341,7 +360,16 @@ def ensure_day_dirs(s: Settings, cam: Camera) -> None:
 
 def record_loop(s: Settings, cam: Camera, stop: threading.Event, procs: dict) -> None:
     backoff = 5
+    paused = False
     while not stop.is_set():
+        if storage_missing(s):
+            if not paused:
+                log.error("%s: recording paused, %s is not mounted", cam.name, mount_point(s.storage_path))
+                errors[cam.name] = (time.time(), f"recording paused, {mount_point(s.storage_path)} is not mounted")
+            paused = True
+            stop.wait(MOUNT_RETRY)
+            continue
+        paused = False
         ensure_day_dirs(s, cam)
         codec = "" if cam.fps else probe_codec(s, cam)
         started = time.monotonic()
@@ -366,6 +394,8 @@ def free_gb(path: Path) -> float:
 
 
 def housekeeping(s: Settings, today=None) -> None:
+    if storage_missing(s):
+        return
     today = today or date.today()
     oldest_kept = today - timedelta(days=s.retention_days - 1)  # today counts as one
     for cam in s.cameras:
@@ -490,7 +520,8 @@ def camera_storage(s: Settings, cam: Camera, today: date) -> dict:
 
 def status(s: Settings) -> dict:
     today = date.today()
-    disk = shutil.disk_usage(s.storage_path)
+    missing = storage_missing(s) or not s.storage_path.is_dir()
+    total, used, free = (0, 0, 0) if missing else shutil.disk_usage(s.storage_path)
     cameras = []
     for cam in s.cameras:
         err = errors.get(cam.name)
@@ -512,10 +543,11 @@ def status(s: Settings) -> dict:
         "storage_path": str(s.storage_path),
         "retention_days": s.retention_days,
         "min_free_gb": s.min_free_gb,
+        "storage_missing": storage_missing(s),
         "segment_minutes": s.segment_minutes,
         "timelapse": {"fps": s.timelapse_fps, "quality": s.timelapse_quality,
                       "height": s.timelapse_height, "keep_snapshots": s.keep_snapshots},
-        "disk": {"total": disk.total, "used": disk.used, "free": disk.free},
+        "disk": {"total": total, "used": used, "free": free},
         "nvr_bytes": sum(c["storage"]["bytes"] for c in cameras),
         "cameras": cameras,
     }
@@ -683,7 +715,10 @@ def main(argv=None) -> int:
     if not s.cameras:
         log.error("No cameras configured: add at least one in the add-on configuration")
         return 1
-    s.storage_path.mkdir(parents=True, exist_ok=True)
+    if storage_missing(s):
+        log.error("%s is not mounted: nothing is saved until it is", mount_point(s.storage_path))
+    else:
+        s.storage_path.mkdir(parents=True, exist_ok=True)
 
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):

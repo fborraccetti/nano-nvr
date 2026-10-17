@@ -316,6 +316,57 @@ class SnapshotLoopTest(unittest.TestCase):
         with mock.patch.object(nvr, "free_gb", return_value=3):
             self.assertEqual(self.run_loop(settings(self.root, min_free_gb=5)), 3)
 
+    def test_paused_while_storage_not_mounted(self):
+        with mock.patch.object(nvr, "storage_missing", return_value=True), \
+                self.assertLogs(nvr.log, "ERROR") as logs:
+            self.assertEqual(self.run_loop(settings(self.root, require_mount=True)), 0)
+        self.assertEqual(len(logs.records), 1, "logged once, not at every round")
+        self.assertIn("not mounted", nvr.errors["front"][1])
+
+
+class MountTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.addCleanup(nvr.errors.clear)
+
+    def test_mount_point_is_first_folder_under_media(self):
+        self.assertEqual(nvr.mount_point(Path("/media/nvr/cams")), Path("/media/nvr"))
+        self.assertEqual(nvr.mount_point(Path("/share/nvr")), Path("/share/nvr"))
+
+    def test_only_checked_when_required(self):
+        with mock.patch.object(nvr.os.path, "ismount", return_value=False):
+            self.assertFalse(nvr.storage_missing(settings(self.root)))
+            self.assertTrue(nvr.storage_missing(settings(self.root, require_mount=True)))
+        with mock.patch.object(nvr.os.path, "ismount", return_value=True):
+            self.assertFalse(nvr.storage_missing(settings(self.root, require_mount=True)))
+
+    def test_recorder_waits_without_creating_folders(self):
+        s = settings(self.root, require_mount=True,
+                     cameras=[nvr.Camera(name="gate", url="rtsp://cam", mode="record")])
+        stop = threading.Event()
+        with mock.patch.object(nvr, "storage_missing", return_value=True), \
+                mock.patch.object(nvr.subprocess, "Popen") as popen, \
+                mock.patch.object(stop, "wait", side_effect=lambda _t: stop.set()), \
+                self.assertLogs(nvr.log, "ERROR"):
+            nvr.record_loop(s, s.cameras[0], stop, {})
+        popen.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_housekeeping_skipped_while_unmounted(self):
+        s = settings(self.root, require_mount=True, retention_days=1)
+        old = touch(self.root / "front" / "2026-01-01.mp4")
+        with mock.patch.object(nvr, "storage_missing", return_value=True):
+            nvr.housekeeping(s, today=TODAY)
+        self.assertTrue(old.exists())
+
+    def test_status_while_unmounted(self):
+        with mock.patch.object(nvr, "storage_missing", return_value=True):
+            st = nvr.status(settings(self.root, require_mount=True))
+        self.assertTrue(st["storage_missing"])
+        self.assertEqual(st["disk"], {"total": 0, "used": 0, "free": 0})
+
 
 class CameraStorageTest(unittest.TestCase):
     def test_counts_days_sizes_and_projection(self):

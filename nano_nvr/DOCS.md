@@ -97,6 +97,7 @@ cameras:
 storage_path: /media/nano_nvr
 retention_days: 30
 min_free_gb: 5
+require_mount: false
 timelapse_fps: 24
 timelapse_quality: 28
 timelapse_height: 0
@@ -113,6 +114,7 @@ log_level: info
 | `storage_path` | `/media/nano_nvr` | Where files are written. Must be under `/media` or `/share`. |
 | `retention_days` | `30` | Days to keep, today included. `0` keeps everything. |
 | `min_free_gb` | `5` | Delete the oldest days when free space drops below this. `0` disables it. |
+| `require_mount` | `false` | `storage_path` is on network storage: save nothing while it is not mounted. See [Network storage](#network-storage). |
 | **Snapshot mode** | | |
 | `timelapse_fps` | `24` | Playback frame rate of the daily timelapse. It does not change how often snapshots are taken: that is `snapshots_per_minute` of each camera. |
 | `timelapse_quality` | `28` | H.264 CRF of the timelapse: lower means better and bigger. |
@@ -205,6 +207,26 @@ Nano NVR only needs the local RTSP stream. Once it is running you can:
 
 Keep internet access open for a while after the first setup if you still need
 the vendor app to change camera settings or update the firmware.
+
+## Network storage
+
+To keep footage on a NAS instead of the Home Assistant disk, add it in
+**Settings → System → Storage → Add network storage** with usage **Media**.
+A storage named `nvr` appears as `/media/nvr`, also in the Media panel. Then
+set:
+
+```yaml
+storage_path: /media/nvr
+require_mount: true
+```
+
+With `require_mount` the add-on checks that `/media/nvr` is mounted before
+writing. While the NAS is unreachable, cameras pause and old footage is not
+touched; they resume by themselves when the storage is back. Without it, the
+files would go to an empty folder on the Home Assistant disk.
+
+`min_free_gb` and the panel use the free space of the share, so a quota on
+the NAS side works as the size limit.
 
 ## Backups
 

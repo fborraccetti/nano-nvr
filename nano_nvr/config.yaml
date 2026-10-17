@@ -1,6 +1,6 @@
 ---
 name: Nano NVR
-version: "0.5.3"
+version: "0.6.0"
 slug: nano_nvr
 description: >-
   Lightweight RTSP recorder: daily timelapses or continuous recording to
@@ -29,6 +29,7 @@ options:
   storage_path: /media/nano_nvr
   retention_days: 30
   min_free_gb: 5
+  require_mount: false
   timelapse_fps: 24
   timelapse_quality: 28
   timelapse_height: 0
@@ -50,6 +51,7 @@ schema:
   storage_path: match(^/(media|share)/.+)
   retention_days: int(0,)
   min_free_gb: float(0,)
+  require_mount: bool
   timelapse_fps: int(1,60)
   timelapse_quality: int(18,40)
   timelapse_height: int(0,2160)
